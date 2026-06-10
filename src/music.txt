@@ -1,0 +1,113 @@
+#include <Arduino.h>
+#include <driver/i2s.h>
+#include <math.h>
+
+// ================= PINLER =================
+#define I2S_DOUT 42
+#define I2S_BCLK 2
+#define I2S_LRC 1
+#define BUTTON_PIN 41
+
+#define SAMPLE_RATE 44100
+
+// ================= NOTALAR =================
+#define PAUSE 0
+#define DO 262
+#define RE 294
+#define MI 330
+#define FA 349
+#define SOL 392
+#define LA 440
+#define SI 494
+#define SOLS 415
+#define RES 311
+#define DOS 277
+
+struct Note {
+    float freq;
+    int duration;
+};
+
+// ================= MELODİ =================
+Note song[] = {
+    {MI, 200}, {RES, 200}, {MI, 400}, {SI, 200}, {LA, 200}, {SI, 400}, {SOLS, 200}, {FA, 200}, {SOLS, 400}, {SOL, 400}, {FA, 400}, {MI, 400},
+    {FA, 400}, {FA, 200}, {MI, 200}, {RES, 400}, {RES, 400}, {FA, 400}, {MI, 400}, {SOLS, 200}, {LA, 400}, {SOLS, 200}, {LA, 400}, {SI, 400},
+    {MI, 200}, {RES, 200}, {MI, 400}, {SI, 200}, {LA, 200}, {SI, 400}, {SOLS, 200}, {FA, 200}, {SOLS, 400}, {SOL, 400}, {FA, 400}, {MI, 400},
+    {MI, 400}, {SOLS, 400}, {SI, 400}, {MI, 600}, {MI, 200},
+    {MI, 200}, {SI, 400}, {DO, 200}, {RES, 200}, {DO, 200}, {SI, 200}, {LA, 600},
+    {SOLS, 400}, {SOLS, 400}, {FA, 400}, {SOLS, 400}, {SOLS, 400}, {LA, 400},
+    {SI, 400}, {MI, 200}, {FA, 200}, {SOLS, 200}, {LA, 400}, {SI, 400},
+    {MI, 200}, {SI, 400}, {DO, 200}, {RES, 200}, {DO, 200}, {SI, 200}, {LA, 600},
+    {SOLS, 400}, {FA, 400}, {RES, 400}, {MI, 400}, {SI, 200}, {LA, 200}, {SOLS, 400}, {FA, 400}, {MI, 400},
+    {FA, 400}, {FA, 200}, {MI, 200}, {RES, 400}, {RES, 400}, {FA, 400}, {MI, 400}
+};
+
+int songSize = sizeof(song) / sizeof(Note);
+
+// ================= I2S SETUP =================
+void setupI2S() {
+    i2s_config_t config = {
+        .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+        .sample_rate = SAMPLE_RATE,
+        .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+        .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+        .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+        .dma_buf_count = 8,
+        .dma_buf_len = 256,
+        .use_apll = false,
+        .tx_desc_auto_clear = true,
+        .fixed_mclk = 0
+    };
+    i2s_pin_config_t pins = {
+        .bck_io_num = I2S_BCLK,
+        .ws_io_num = I2S_LRC,
+        .data_out_num = I2S_DOUT,
+        .data_in_num = -1
+    };
+    i2s_driver_install(I2S_NUM_0, &config, 0, NULL);
+    i2s_set_pin(I2S_NUM_0, &pins);
+}
+
+// ================= TONE ÜRET =================
+void playTone(float freq, int duration) {
+    if (freq == PAUSE) {
+        delay(duration);
+        return;
+    }
+    int samples = (SAMPLE_RATE * duration) / 1000;
+    int16_t buffer[256];
+    for (int i = 0; i < samples; i += 256) {
+        for (int j = 0; j < 256; j++) {
+            float t = (float)(i + j) / SAMPLE_RATE;
+            float wave = sin(2 * PI * freq * t);
+            buffer[j] = wave * 9000;
+        }
+        size_t bytes_written;
+        i2s_write(I2S_NUM_0, buffer, sizeof(buffer), &bytes_written, portMAX_DELAY);
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
+    setupI2S();
+    // Harici direnç kullandığın için INPUT olarak ayarladık
+    pinMode(BUTTON_PIN, INPUT); 
+    Serial.println("Sistem Hazir. Butona basmaniz bekleniyor...");
+}
+
+void loop() {
+    // Harici dirençle (pull-down) butona basıldığında pin HIGH (3.3V) olur
+    if (digitalRead(BUTTON_PIN) == HIGH) {
+        Serial.println("--- BUTONA BASILDI! MELODI BASLIYOR ---");
+        
+        for (int i = 0; i < songSize; i++) {
+            playTone(song[i].freq, song[i].duration);
+            delay(50);
+        }
+        
+        Serial.println("--- MELODI BITTI ---");
+        delay(500); // Buton arkı koruması
+    }
+    delay(20);
+}
